@@ -59,6 +59,8 @@ dependencies:
     - vector
     - websockets
     - wuss
+    - amazonka
+    - amazonka-lambda
 
 default-extensions: *luna-extensions
 
