@@ -4,8 +4,19 @@ native class AWSEnv:
     def shortRep: "AWSEnv {}"
 
 
-native class LambdaInvokeResponse:
-    def shortRep: "LambdaInvokeResponse {}"
+class LambdaInvokeResponse:
+    statusCode :: Int
+    payload    :: Maybe Binary
+
+    def shortRep:
+        "LambdaInvokeResponse[" + self.statusCode.toText + "]"
+
+    def toText:
+        self.shortRep + ": " + self.payload.toText
+
+    def json: self.payload.toJSON
+
+    def text: self.payload.map (_.toText) . withDefault ""
 
 
 class AWS:

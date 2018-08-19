@@ -4,10 +4,11 @@ module Luna.Prim.AWS where
 
 import Prologue
 
+import Control.Lens     (to)
 import Data.ByteString  (ByteString)
 import Data.Map         (Map)
 import Data.Text        (Text)
-import Luna.Std.Builder (LTp (..), makeFunctionIO)
+import Luna.Std.Builder (LTp (..), makeFunctionIO, integer)
 
 import qualified Data.Map                    as Map
 import qualified Luna.IR                     as IR
@@ -59,5 +60,13 @@ exports = do
 
 type instance Luna.RuntimeRepOf AWS.Env =
     Luna.AsNative ('Luna.ClassRep AWSModule "AWSEnv")
+
 type instance Luna.RuntimeRepOf Lambda.InvokeResponse =
-    Luna.AsNative ('Luna.ClassRep AWSModule "LambdaInvokeResponse")
+    Luna.AsClass Lambda.InvokeResponse
+                 ('Luna.ClassRep "Std.AWS" "LambdaInvokeResponse")
+
+instance Luna.ToObject Lambda.InvokeResponse where
+    toConstructor imps v = Luna.Constructor "LambdaInvokeResponse"
+        [ Luna.toData imps $ v ^. Lambda.irsStatusCode . to integer
+        , Luna.toData imps $ v ^. Lambda.irsPayload
+        ]
