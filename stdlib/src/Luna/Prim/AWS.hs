@@ -8,10 +8,11 @@ import Control.Lens     (to)
 import Data.ByteString  (ByteString)
 import Data.Map         (Map)
 import Data.Text        (Text)
-import Luna.Std.Builder (LTp (..), makeFunctionIO, integer)
-import System.FilePath  ((</>), (<.>))
+import Luna.Std.Builder (LTp (..), integer, makeFunctionIO)
+import System.FilePath  ((<.>), (</>))
 
 import qualified Codec.Archive.Zip           as Zip
+import qualified Data.ByteString             as BS
 import qualified Data.Map                    as Map
 import qualified Data.Text.IO                as Text
 import qualified Luna.IR                     as IR
@@ -20,6 +21,7 @@ import qualified Luna.Runtime                as Luna
 import qualified Luna.Std.Builder            as Builder
 import qualified Network.AWS                 as AWS
 import qualified Network.AWS.Lambda          as Lambda
+import qualified Network.AWS.Lambda.Types    as Lambda
 import qualified OCI.Data.Name               as Name
 import qualified System.Directory            as Dir
 
@@ -27,6 +29,13 @@ type AWSModule = "Std.AWS"
 
 awsModule :: Name.Qualified
 awsModule = Name.qualFromSymbol @AWSModule
+
+data FunctionInfo = FunctionInfo
+    { _name :: Text
+    , _env  :: AWS.Env
+    }
+makeLenses ''FunctionInfo
+
 
 exports :: forall graph m. Builder.StdBuilder graph m => m (Map IR.Name Def.Def)
 exports = do
@@ -55,35 +64,62 @@ exports = do
     primAWSInvoke <- makeFunctionIO @graph (flip Luna.toValue invokeVal)
                                            invokeArgsT invokeRespT
 
-    let zipFunctionCodeVal :: Text -> Text -> IO ()
+    let zipFunctionCodeVal :: Text -> Text -> IO ByteString
         zipFunctionCodeVal fname contents = do
             let contentsBS = convertTo @ByteString contents
                 dirName    = convertTo @String     fname
                 archName   = dirName <.> "zip"
                 fileName   = "index" <.> "js"
-            s <- Zip.mkEntrySelector (dirName </> fileName)
+            s <- Zip.mkEntrySelector fileName -- (dirName </> fileName)
             let newEntry = Zip.addEntry Zip.Store contentsBS s
             Zip.createArchive archName newEntry
+            bs <- BS.readFile archName
+            Dir.removeFile archName
+            pure bs
     primZipFunctionCode <- makeFunctionIO @graph
         (flip Luna.toValue zipFunctionCodeVal)
-        [Builder.textLT, Builder.textLT] Builder.noneLT
+        [Builder.textLT, Builder.textLT] Builder.binaryLT
 
-    pure $ Map.fromList [ ("primAWSListFuns",     primListFuns)
-                        , ("primAWSNewEnv",       primAWSNewEnv)
-                        , ("primAWSInvoke",       primAWSInvoke)
-                        , ("primZipFunctionCode", primZipFunctionCode)
+    let createFunctionVal :: AWS.Env -> Text -> Text -> ByteString -> IO FunctionInfo
+        createFunctionVal env fname role code = do
+            let fcode   = Lambda.functionCode & Lambda.fcZipFile .~ (Just code)
+                rtime   = Lambda.NODEJS8_10
+                handler = "index.handler"
+                createF = Lambda.createFunction fname rtime role handler fcode
+
+            _ <- AWS.runResourceT . AWS.runAWS env . AWS.send $ createF
+            pure $ FunctionInfo fname env
+        functionInfoT = LCons awsModule "LambdaFunction" []
+    primAWSCreateFunction <- makeFunctionIO @graph
+        (flip Luna.toValue createFunctionVal)
+        [envT, Builder.textLT, Builder.textLT, Builder.binaryLT] functionInfoT
+
+    pure $ Map.fromList [ ("primAWSListFuns",       primListFuns)
+                        , ("primAWSNewEnv",         primAWSNewEnv)
+                        , ("primAWSInvoke",         primAWSInvoke)
+                        , ("primZipFunctionCode",   primZipFunctionCode)
+                        , ("primAWSCreateFunction", primAWSCreateFunction)
                         ]
 
 
+-- === AWS.Env === --
 type instance Luna.RuntimeRepOf AWS.Env =
     Luna.AsNative ('Luna.ClassRep AWSModule "AWSEnv")
 
+-- === Lambda.InvokeResponse === --
 type instance Luna.RuntimeRepOf Lambda.InvokeResponse =
-    Luna.AsClass Lambda.InvokeResponse
-                 ('Luna.ClassRep "Std.AWS" "LambdaInvokeResponse")
+    Luna.AsClass Lambda.InvokeResponse ('Luna.ClassRep "Std.AWS" "LambdaInvokeResponse")
 
 instance Luna.ToObject Lambda.InvokeResponse where
     toConstructor imps v = Luna.Constructor "LambdaInvokeResponse"
         [ Luna.toData imps $ v ^. Lambda.irsStatusCode . to integer
         , Luna.toData imps $ v ^. Lambda.irsPayload
         ]
+
+-- === FunctionInfo === --
+type instance Luna.RuntimeRepOf FunctionInfo =
+    Luna.AsClass FunctionInfo ('Luna.ClassRep "Std.AWS" "LambdaFunction")
+
+instance Luna.ToObject FunctionInfo where
+    toConstructor imps (FunctionInfo name env) = Luna.Constructor "LambdaFunction"
+        [ Luna.toData imps name, Luna.toData imps env ]

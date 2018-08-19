@@ -5,24 +5,36 @@ native class AWSEnv:
     def shortRep: "AWSEnv {}"
 
 
-class LambdaFunction:
-    LambdaFunction
-    LambdaFunctionCode Text Text
-    LambdaFunctionFile Text Text
+class LambdaFunctionCode:
+    LambdaFunctionCode
+    LambdaFunctionCodeText Text Text
+    LambdaFunctionCodeFile Text Text
 
-    def fromText name code: LambdaFunctionCode name code
-    def fromFile name path: LambdaFunctionFile name path
+    def fromText name code: LambdaFunctionCodeText name code
+    def fromFile name path: LambdaFunctionCodeFile name path
 
     def name: case self of
-        LambdaFunctionCode n _: n
-        LambdaFunctionFile n _: n
+        LambdaFunctionCodeText n _: n
+        LambdaFunctionCodeFile n _: n
 
     def code: case self of
-        LambdaFunctionCode _ c: c
-        LambdaFunctionFile _ p: readFile p
+        LambdaFunctionCodeText _ c: c
+        LambdaFunctionCodeFile _ p: readFile p
 
     def toZippedBinary:
         primZipFunctionCode self.name self.code
+
+
+class LambdaFunction:
+    name :: Text
+    env  :: AWSEnv
+
+    def invoke payload:
+        primAWSInvoke self.env self.name payload.toBinary
+
+    def shortRep: "LambdaFunction { name = " + self.name + " }"
+
+    def toText: self.shortRep
 
 
 class LambdaInvokeResponse:
@@ -42,11 +54,17 @@ class LambdaInvokeResponse:
 
 class AWS:
     AWS
-    AWSVal AWSEnv
+    AWSVal AWSEnv (Maybe Text)
 
     def init:
         e = primAWSNewEnv
-        AWSVal e
+        AWSVal e Nothing
+
+    def setRole r: case self of
+        AWSVal env _: AWSVal env (Just r)
+
+    def role: case self of
+        AWSVal _ r: r
 
     def env: case self of
         AWSVal e: e
@@ -54,9 +72,10 @@ class AWS:
     def listFunctions:
         primAWSListFuns self.env
 
-    def invoke fName payload:
-        primAWSInvoke self.env fName payload.toBinary
-
     def createFunction function:
-        print "TODO"
+        case self.role of
+            Nothing: errorStr "Please set an IAM role."
+            Just r:
+                code = function.toZippedBinary
+                primAWSCreateFunction self.env function.name r code
 
