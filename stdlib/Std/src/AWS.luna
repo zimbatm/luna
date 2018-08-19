@@ -1,7 +1,28 @@
 import Std.Base
 
+
 native class AWSEnv:
     def shortRep: "AWSEnv {}"
+
+
+class LambdaFunction:
+    LambdaFunction
+    LambdaFunctionCode Text Text
+    LambdaFunctionFile Text Text
+
+    def fromText name code: LambdaFunctionCode name code
+    def fromFile name path: LambdaFunctionFile name path
+
+    def name: case self of
+        LambdaFunctionCode n _: n
+        LambdaFunctionFile n _: n
+
+    def code: case self of
+        LambdaFunctionCode _ c: c
+        LambdaFunctionFile _ p: readFile p
+
+    def toZippedBinary:
+        primZipFunctionCode self.name self.code
 
 
 class LambdaInvokeResponse:
@@ -35,4 +56,7 @@ class AWS:
 
     def invoke fName payload:
         primAWSInvoke self.env fName payload.toBinary
+
+    def createFunction function:
+        print "TODO"
 

@@ -9,8 +9,11 @@ import Data.ByteString  (ByteString)
 import Data.Map         (Map)
 import Data.Text        (Text)
 import Luna.Std.Builder (LTp (..), makeFunctionIO, integer)
+import System.FilePath  ((</>), (<.>))
 
+import qualified Codec.Archive.Zip           as Zip
 import qualified Data.Map                    as Map
+import qualified Data.Text.IO                as Text
 import qualified Luna.IR                     as IR
 import qualified Luna.Pass.Sourcing.Data.Def as Def
 import qualified Luna.Runtime                as Luna
@@ -18,7 +21,7 @@ import qualified Luna.Std.Builder            as Builder
 import qualified Network.AWS                 as AWS
 import qualified Network.AWS.Lambda          as Lambda
 import qualified OCI.Data.Name               as Name
-
+import qualified System.Directory            as Dir
 
 type AWSModule = "Std.AWS"
 
@@ -27,8 +30,7 @@ awsModule = Name.qualFromSymbol @AWSModule
 
 exports :: forall graph m. Builder.StdBuilder graph m => m (Map IR.Name Def.Def)
 exports = do
-    let envT        = LCons awsModule "AWSEnv"               []
-        invokeRespT = LCons awsModule "LambdaInvokeResponse" []
+    let envT = LCons awsModule "AWSEnv" []
 
     let listFunsVal :: AWS.Env -> IO ()
         listFunsVal env = do
@@ -49,12 +51,27 @@ exports = do
             let invocation = Lambda.invoke fname payload
             in AWS.runResourceT . AWS.runAWS env . AWS.send $ invocation
         invokeArgsT = [envT, Builder.textLT, Builder.binaryLT]
+        invokeRespT = LCons awsModule "LambdaInvokeResponse" []
     primAWSInvoke <- makeFunctionIO @graph (flip Luna.toValue invokeVal)
                                            invokeArgsT invokeRespT
 
-    pure $ Map.fromList [ ("primAWSListFuns", primListFuns)
-                        , ("primAWSNewEnv",   primAWSNewEnv)
-                        , ("primAWSInvoke",   primAWSInvoke)
+    let zipFunctionCodeVal :: Text -> Text -> IO ()
+        zipFunctionCodeVal fname contents = do
+            let contentsBS = convertTo @ByteString contents
+                dirName    = convertTo @String     fname
+                archName   = dirName <.> "zip"
+                fileName   = "index" <.> "js"
+            s <- Zip.mkEntrySelector (dirName </> fileName)
+            let newEntry = Zip.addEntry Zip.Store contentsBS s
+            Zip.createArchive archName newEntry
+    primZipFunctionCode <- makeFunctionIO @graph
+        (flip Luna.toValue zipFunctionCodeVal)
+        [Builder.textLT, Builder.textLT] Builder.noneLT
+
+    pure $ Map.fromList [ ("primAWSListFuns",     primListFuns)
+                        , ("primAWSNewEnv",       primAWSNewEnv)
+                        , ("primAWSInvoke",       primAWSInvoke)
+                        , ("primZipFunctionCode", primZipFunctionCode)
                         ]
 
 
