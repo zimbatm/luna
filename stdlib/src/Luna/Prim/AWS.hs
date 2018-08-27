@@ -8,7 +8,7 @@ import Control.Lens     (to)
 import Data.ByteString  (ByteString)
 import Data.Map         (Map)
 import Data.Text        (Text)
-import Luna.Std.Builder (LTp (..), integer, makeFunctionIO)
+import Luna.Std.Builder (LTp (..), integer, makeFunctionIO, makeFunctionPure)
 import System.FilePath  ((<.>), (</>))
 
 import qualified Codec.Archive.Zip           as Zip
@@ -33,27 +33,34 @@ awsModule = Name.qualFromSymbol @AWSModule
 data FunctionInfo = FunctionInfo
     { _name :: Text
     , _env  :: AWS.Env
+    , _conf :: Lambda.FunctionConfiguration
     }
 makeLenses ''FunctionInfo
 
 
 exports :: forall graph m. Builder.StdBuilder graph m => m (Map IR.Name Def.Def)
 exports = do
-    let envT = LCons awsModule "AWSEnv" []
+    let envT   = LCons awsModule "AWSEnv" []
+        fConfT = LCons awsModule "LambdaFunctionConfiguration" []
 
-    let listFunsVal :: AWS.Env -> IO ()
+    let funcNameFromConfVal :: Lambda.FunctionConfiguration -> Text
+        funcNameFromConfVal = fromJust "" . view Lambda.fcFunctionName
+    primFuncNameFromConf <- makeFunctionPure @graph
+        (flip Luna.toValue funcNameFromConfVal)
+        [fConfT] Builder.textLT
+
+    let listFunsVal :: AWS.Env -> IO [Lambda.FunctionConfiguration]
         listFunsVal env = do
-          funs <- AWS.runResourceT $ AWS.runAWS env
-                                   $ AWS.send
-                                   $ Lambda.listFunctions
-          print funs
-    primListFuns <- makeFunctionIO @graph (flip Luna.toValue listFunsVal)
-                                          [envT] Builder.noneLT
+            res <- AWS.runResourceT . AWS.runAWS env . AWS.send $ Lambda.listFunctions
+            pure $ res ^. Lambda.lfrsFunctions
+        returnT = Builder.listLT fConfT
+    primListFuns <- makeFunctionIO @graph
+        (flip Luna.toValue listFunsVal)[envT]
+        returnT
 
     let newEnvVal :: IO AWS.Env
         newEnvVal = AWS.newEnv AWS.Discover
-    primAWSNewEnv <- makeFunctionIO @graph (flip Luna.toValue newEnvVal)
-                                           [] envT
+    primAWSNewEnv <- makeFunctionIO @graph (flip Luna.toValue newEnvVal) [] envT
 
     let invokeVal :: AWS.Env -> Text -> ByteString -> IO Lambda.InvokeResponse
         invokeVal env fname payload =
@@ -61,8 +68,9 @@ exports = do
             in AWS.runResourceT . AWS.runAWS env . AWS.send $ invocation
         invokeArgsT = [envT, Builder.textLT, Builder.binaryLT]
         invokeRespT = LCons awsModule "LambdaInvokeResponse" []
-    primAWSInvoke <- makeFunctionIO @graph (flip Luna.toValue invokeVal)
-                                           invokeArgsT invokeRespT
+    primAWSInvoke <- makeFunctionIO @graph
+        (flip Luna.toValue invokeVal)
+        invokeArgsT invokeRespT
 
     let zipFunctionCodeVal :: Text -> Text -> IO ByteString
         zipFunctionCodeVal fname contents = do
@@ -78,7 +86,8 @@ exports = do
             pure bs
     primZipFunctionCode <- makeFunctionIO @graph
         (flip Luna.toValue zipFunctionCodeVal)
-        [Builder.textLT, Builder.textLT] Builder.binaryLT
+        [Builder.textLT, Builder.textLT]
+        Builder.binaryLT
 
     let createFunctionVal :: AWS.Env -> Text -> Text -> ByteString -> IO FunctionInfo
         createFunctionVal env fname role code = do
@@ -87,24 +96,30 @@ exports = do
                 handler = "index.handler"
                 createF = Lambda.createFunction fname rtime role handler fcode
 
-            _ <- AWS.runResourceT . AWS.runAWS env . AWS.send $ createF
-            pure $ FunctionInfo fname env
+            conf <- AWS.runResourceT . AWS.runAWS env . AWS.send $ createF
+            pure $ FunctionInfo fname env conf
         functionInfoT = LCons awsModule "LambdaFunction" []
     primAWSCreateFunction <- makeFunctionIO @graph
         (flip Luna.toValue createFunctionVal)
-        [envT, Builder.textLT, Builder.textLT, Builder.binaryLT] functionInfoT
+        [envT, Builder.textLT, Builder.textLT, Builder.binaryLT]
+        functionInfoT
 
-    pure $ Map.fromList [ ("primAWSListFuns",       primListFuns)
-                        , ("primAWSNewEnv",         primAWSNewEnv)
-                        , ("primAWSInvoke",         primAWSInvoke)
-                        , ("primZipFunctionCode",   primZipFunctionCode)
-                        , ("primAWSCreateFunction", primAWSCreateFunction)
+    pure $ Map.fromList [ ("primAWSListFuns",         primListFuns)
+                        , ("primAWSFuncNameFromConf", primFuncNameFromConf)
+                        , ("primAWSNewEnv",           primAWSNewEnv)
+                        , ("primAWSInvoke",           primAWSInvoke)
+                        , ("primZipFunctionCode",     primZipFunctionCode)
+                        , ("primAWSCreateFunction",   primAWSCreateFunction)
                         ]
 
 
 -- === AWS.Env === --
 type instance Luna.RuntimeRepOf AWS.Env =
     Luna.AsNative ('Luna.ClassRep AWSModule "AWSEnv")
+
+-- === Lambda FunctionConfiguration === --
+type instance Luna.RuntimeRepOf Lambda.FunctionConfiguration =
+    Luna.AsNative ('Luna.ClassRep AWSModule "LambdaFunctionConfiguration")
 
 -- === Lambda.InvokeResponse === --
 type instance Luna.RuntimeRepOf Lambda.InvokeResponse =
@@ -121,5 +136,8 @@ type instance Luna.RuntimeRepOf FunctionInfo =
     Luna.AsClass FunctionInfo ('Luna.ClassRep "Std.AWS" "LambdaFunction")
 
 instance Luna.ToObject FunctionInfo where
-    toConstructor imps (FunctionInfo name env) = Luna.Constructor "LambdaFunction"
-        [ Luna.toData imps name, Luna.toData imps env ]
+    toConstructor imps (FunctionInfo name env conf) = Luna.Constructor "LambdaFunction"
+        [ Luna.toData imps name
+        , Luna.toData imps env
+        , Luna.toData imps conf
+        ]
