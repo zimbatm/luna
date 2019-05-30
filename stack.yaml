@@ -34,6 +34,7 @@ packages:
     - syntax/text/prettyprint
 
     - lib/autovector
+    - lib/build-support
     - lib/ci
     - lib/code-builder
     - lib/container
@@ -73,4 +74,7 @@ packages:
     - lib/typelevel
     - lib/vector-text
     - lib/yaml-utils
-
+    
+extra-deps:
+    - git: https://github.com/mwu-tow/pecoff
+      commit: e322bdd961262fd2811320774d17b14fe07b297a
