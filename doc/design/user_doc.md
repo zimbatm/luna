@@ -1,18 +1,23 @@
-# Enso Introduction
+# Introduction
 
-Simplicity and correctness
+- Lowering cognitive load + visual & textual representation are equal
+- Simplicity and correctness
 
 ## Do we need a new programming language?
 
-## Software correctness
+## Software correctness matters
 
 ## "Immediate connection to the data" 
 
-Brett Victor blogpost introduction
+- Brett Victor blogpost introduction
 
-## Simplicity. The Ultimate Sophistication
 
-# Visual and Textual Representation
+
+## High-level design guideline
+
+# Syntax
+
+- Where to use what syntax - info that textual syntax is above nodes – this are the **same expressions**.
 
 ## Encoding
 
