@@ -94,6 +94,12 @@ As the function definition translates under the hood to an ordinary variable ass
 
 ### Default arguments
 
+### Positional arguments
+
+### Optional Arguments
+
+### Splat Arguments
+
 ## First class functions
 
 ## Partial function application 
@@ -121,3 +127,9 @@ imports, modules etc
 # Errors handling
 
 # Enso Libraries
+
+# More about type system and data types (not sure where it should go)
+
+## refinement types
+
+## type inference
