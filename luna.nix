@@ -711,7 +711,7 @@ let
            license = stdenv.lib.licenses.bsd3;
          }) {};
       "HDBC-mysql" = callPackage
-        ({ mkDerivation, base, bytestring, Cabal, HDBC, mysqlclient
+        ({ mkDerivation, base, bytestring, Cabal, HDBC, mysql-client
          , openssl, stdenv, time, utf8-string, zlib
          }:
          mkDerivation {
@@ -723,13 +723,13 @@ let
            ];
            setupHaskellDepends = [ base Cabal ];
            libraryHaskellDepends = [ base bytestring HDBC time utf8-string ];
-           librarySystemDepends = [ mysqlclient openssl zlib ];
+           librarySystemDepends = [ mysql-client openssl zlib ];
            doHaddock = false;
            doCheck = false;
            homepage = "http://github.com/ryantm/hdbc-mysql";
            description = "MySQL driver for HDBC";
            license = "LGPL";
-         }) {inherit (pkgs) mysqlclient; inherit (pkgs) openssl; 
+         }) {inherit (pkgs) mysql-client; inherit (pkgs) openssl; 
 inherit (pkgs) zlib;};
       "HDBC-session" = callPackage
         ({ mkDerivation, base, HDBC, stdenv }:
